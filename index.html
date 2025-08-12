@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Balatro-Style Rock • Paper • Scissors</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Balatro-Style <span class="muted">Rock • Paper • Scissors</span></h1>
+      <div class="stack">
+        <div class="pill"><small>Round</small> <span id="roundVal">1</span></div>
+        <div class="pill"><small>Hands</small> <span id="handsVal">1</span></div>
+        <div class="pill"><small>Artifacts</small> <span id="artifactsCount">0</span></div>
+      </div>
+    </header>
+
+    <div class="row">
+      <div class="col">
+        <div class="panel">
+          <h2>Your Picks</h2>
+          <div class="slotbar" id="slots"></div>
+          <div class="divider"></div>
+          <div class="cards" id="handButtons"></div>
+          <div class="stack" style="margin-top:12px">
+            <button id="btnClear" class="btn">Clear</button>
+            <button id="btnRandom" class="btn">Auto-fill</button>
+            <button id="btnLock" class="btn primary">Lock In</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="panel">
+          <h2>Match</h2>
+          <div class="score">
+            <div class="p">Player Total: <span id="pTotal">0</span></div>
+            <div class="a" style="text-align:right">AI Total: <span id="aTotal">0</span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="stack tiny" style="margin-bottom:8px">
+            <span class="badge">Base per hand: 100</span>
+            <span class="badge">Win bonus: ×1.5 to winner's score</span>
+          </div>
+          <div id="fxStage" class="fxstage"></div>
+          <div class="log" id="log"></div>
+          <div class="footer">
+            <button id="btnNext" class="btn good hidden">Next Round</button>
+            <button id="btnRetry" class="btn hidden">Retry Round</button>
+            <button id="btnReset" class="btn bad hidden">New Run</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="col" style="flex:1 1 100%">
+        <div class="panel">
+          <h2>Your Artifacts</h2>
+          <div class="stack" id="artifactList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reward modal -->
+  <dialog id="rewardModal">
+    <div class="modal">
+      <h2>Choose an Artifact</h2>
+      <p class="muted">You won the match! Pick one buff.</p>
+      <div class="choices" id="rewardChoices"></div>
+      <div class="footer"><button id="closeReward" class="btn" autofocus>Skip</button></div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
