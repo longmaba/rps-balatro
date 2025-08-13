@@ -38,6 +38,9 @@
     totalsMs: 800,
   };
 
+  // Maximum number of hands per round
+  const MAX_HANDS = 9;
+
   // AI difficulty scaling (configurable)
   const AI_SCALING = {
     enabled: true,
@@ -388,6 +391,7 @@
         `<span class="idx">${i + 1}</span>` +
         (currentChoices[i] ? `<span class="big">${handEmoji(currentChoices[i])}</span>` : '<span class="big">—</span>');
       s.addEventListener("click", () => {
+        if (state.inProgress) return;
         if (currentChoices[i]) {
           currentChoices[i] = null;
           refresh();
@@ -404,6 +408,7 @@
       c.style.borderColor = "#223045";
       c.innerHTML = `<span class="label">${h.id}</span><span class="emoji">${h.emoji}</span>`;
       c.addEventListener("click", () => {
+        if (state.inProgress) return;
         const idx = currentChoices.findIndex((v) => !v);
         if (idx > -1) {
           currentChoices[idx] = h.id;
@@ -432,6 +437,9 @@
     renderSlots();
     renderHandButtons();
     renderArtifacts();
+    // Disable interactions on hand panel when a round has ended or during resolution
+    handButtons.style.pointerEvents = state.inProgress ? "none" : "auto";
+    slotsWrap.style.pointerEvents = state.inProgress ? "none" : "auto";
     btnLock.disabled = currentChoices.filter(Boolean).length !== state.handsCount || state.inProgress;
     btnClear.disabled = state.inProgress || currentChoices.filter(Boolean).length === 0;
     btnRandom.disabled = state.inProgress;
@@ -618,8 +626,6 @@
         appendLog(`<b>Match result:</b> DRAW — play the round again.`);
         btnRetry.classList.remove("hidden");
       }
-
-      state.inProgress = false;
     })();
   }
 
@@ -669,12 +675,19 @@
     }
 
     rewardChoices.innerHTML = "";
+    // Re-enable interactions at the start of each reward phase
+    rewardChoices.style.pointerEvents = "auto";
+    // Prevent multiple claims from rapid/multiple clicks
+    let claimed = false;
     picks.forEach((p) => {
       if (p.kind === "artifact") {
         const a = p.data;
         const c = div("choice");
         c.innerHTML = `<h3>${a.name} <span class="${rarityClass(a.tier)}">(${a.tier})</span></h3><p class="tiny">${a.desc}</p>`;
         c.addEventListener("click", () => {
+          if (claimed) return;
+          claimed = true;
+          rewardChoices.style.pointerEvents = "none";
           state.playerArtifacts.push(a);
           appendLog(`<b>Artifact gained:</b> ${a.name}`);
           renderArtifacts();
@@ -689,6 +702,9 @@
           r.rarity
         })</span></h3><p class="tiny">${r.summary}</p>`;
         c.addEventListener("click", () => {
+          if (claimed) return;
+          claimed = true;
+          rewardChoices.style.pointerEvents = "none";
           state.playerRecipes.push(r.id);
           appendLog(`<b>Recipe learned:</b> ${r.name}`);
           rewardModal.close();
@@ -715,10 +731,16 @@
       copy.splice(copy.indexOf(pick), 1);
     }
 
+    // Enable interactions and install single-claim guard
+    startChoices.style.pointerEvents = "auto";
+    let startClaimed = false;
     picks.forEach((a, idx) => {
       const c = div("choice mysterybox");
       c.innerHTML = `<div class="mystery-face">🎁 Mystery Box #${idx + 1}</div>`;
       c.addEventListener("click", () => {
+        if (startClaimed) return;
+        startClaimed = true;
+        startChoices.style.pointerEvents = "none";
         // Reveal animation: swap to artifact details, then accept
         c.classList.add("revealed");
         c.innerHTML = `<h3>${a.name} <span class="${rarityClass(a.tier)}">(${a.tier})</span></h3><p class="tiny">${a.desc}</p>`;
@@ -1031,7 +1053,7 @@
   btnNext.addEventListener("click", () => {
     btnNext.classList.add("hidden");
     state.round += 1;
-    state.handsCount += 1;
+    state.handsCount = clamp(state.handsCount + 1, 1, MAX_HANDS);
     startMatch();
   });
   btnRetry.addEventListener("click", () => {
