@@ -342,6 +342,136 @@
     },
   ];
 
+  // ---------- Crafted Hands (from Recipes)
+  // Each crafted hand is a special playable hand with a base type and unique effects
+  const CRAFTED_HAND_DEFS = {
+    HeavyRock: {
+      id: "HeavyRock",
+      name: "Heavy Rock",
+      baseType: "Rock",
+      // onCompareStart effects; returns event chips
+      applyStart(ctx) {
+        const events = [];
+        // Apply pending Heavy Rock penalty from prior win
+        if (ctx.carry.heavyRockPenalty) {
+          const amt = ctx.carry.heavyRockPenalty;
+          ctx.mod.p.mult += -amt;
+          events.push({ who: "p", stat: "mult", op: "add", amount: -amt, source: "Heavy Rock (penalty)" });
+          ctx.carry.heavyRockPenalty = 0;
+        }
+        // This compare bonus when playing Heavy Rock
+        if (ctx.pHand === "HeavyRock") {
+          ctx.mod.p.base += 70;
+          events.push({ who: "p", stat: "base", op: "add", amount: 70, source: "Heavy Rock" });
+        }
+        return events;
+      },
+      // After compare: if you won with Heavy Rock, inflict next mult penalty
+      applyEnd(ctx, outcome) {
+        if (ctx.pHand === "HeavyRock" && outcome === "player") {
+          ctx.carry.heavyRockPenalty = 0.1;
+        }
+      },
+    },
+    Switchblade: {
+      id: "Switchblade",
+      name: "Switchblade",
+      baseType: "Scissors",
+      applyStart(ctx) {
+        const events = [];
+        if (ctx.pHand === "Switchblade") {
+          const prev = ctx.compareIndex > 0 ? ctx.playerChoices[ctx.compareIndex - 1] : null;
+          const prevBase = prev ? getBaseType(prev) : null;
+          const curBase = getBaseType(ctx.pHand);
+          const switched = prevBase && curBase && prevBase !== curBase;
+          const delta = switched ? 40 : -15;
+          ctx.mod.p.base += delta;
+          events.push({ who: "p", stat: "base", op: "add", amount: delta, source: "Switchblade" });
+        }
+        return events;
+      },
+    },
+    MetronomePaper: {
+      id: "MetronomePaper",
+      name: "Metronome Paper",
+      baseType: "Paper",
+      applyStart(ctx) {
+        const events = [];
+        if (ctx.pHand === "MetronomePaper") {
+          const prev = ctx.compareIndex > 0 ? ctx.playerChoices[ctx.compareIndex - 1] : null;
+          const prevBase = prev ? getBaseType(prev) : null;
+          const curBase = getBaseType(ctx.pHand);
+          const same = prevBase && curBase && prevBase === curBase;
+          const multDelta = same ? 0.2 : -0.1;
+          ctx.mod.p.mult += multDelta;
+          events.push({ who: "p", stat: "mult", op: "add", amount: multDelta, source: "Metronome Paper" });
+        }
+        return events;
+      },
+    },
+    Riposte: {
+      id: "Riposte",
+      name: "Riposte (Exotic)",
+      baseType: "Exotic",
+      // Special: outcome handling elsewhere; here only reactive beat bonus
+      applyStart(ctx) {
+        const events = [];
+        // Mult bonus is applied only if this compare results in a reactive win; handled after outcome
+        return events;
+      },
+      // No carry at end
+    },
+    Primer: {
+      id: "Primer",
+      name: "Primer",
+      baseType: "Paper",
+      applyStart(ctx) {
+        const events = [];
+        // If stacks exist and not consumed by Detonator here, they will be applied in generic carry step
+        return events;
+      },
+      applyEnd(ctx) {
+        if (ctx.pHand === "Primer") {
+          const cur = ctx.carry.primerStacks || 0;
+          ctx.carry.primerStacks = clamp(cur + 1, 0, 2);
+        }
+      },
+    },
+    Detonator: {
+      id: "Detonator",
+      name: "Detonator",
+      baseType: "Rock",
+      applyStart(ctx) {
+        const events = [];
+        if (ctx.pHand === "Detonator") {
+          const stacks = ctx.carry.primerStacks || 0;
+          if (stacks > 0) {
+            const multAdd = Math.min(0.2, 0.1 * stacks);
+            ctx.mod.p.mult += multAdd;
+            events.push({ who: "p", stat: "mult", op: "add", amount: multAdd, source: "Detonator (consume Primer)" });
+            ctx.carry.primerStacks = 0;
+          } else {
+            ctx.mod.p.base += -15;
+            events.push({ who: "p", stat: "base", op: "add", amount: -15, source: "Detonator (no Primer)" });
+          }
+        }
+        return events;
+      },
+    },
+  };
+
+  function isCraftedHand(id) {
+    return !!CRAFTED_HAND_DEFS[id];
+  }
+  function getCraftedDef(id) {
+    return CRAFTED_HAND_DEFS[id];
+  }
+  function getBaseType(id) {
+    if (!id) return null;
+    if (CRAFTED_HAND_DEFS[id]) return CRAFTED_HAND_DEFS[id].baseType === "Exotic" ? null : CRAFTED_HAND_DEFS[id].baseType;
+    return id;
+  }
+
   // ---------- Game state
   const state = { round: 1, handsCount: 1, playerArtifacts: [], inProgress: false, playerRecipes: [], craftedHands: [] };
 
@@ -373,6 +503,7 @@
   const workshopModal = el("#workshopModal");
   const workshopList = el("#workshopList");
   const workshopPreview = el("#workshopPreview");
+  let selectedRecipeId = null;
 
   let currentChoices = [];
 
@@ -403,6 +534,7 @@
 
   function renderHandButtons() {
     handButtons.innerHTML = "";
+    // Base hands
     HANDS.forEach((h) => {
       const c = div("card");
       c.style.borderColor = "#223045";
@@ -412,6 +544,24 @@
         const idx = currentChoices.findIndex((v) => !v);
         if (idx > -1) {
           currentChoices[idx] = h.id;
+          refresh();
+        }
+      });
+      handButtons.appendChild(c);
+    });
+    // Crafted hands as extra options
+    state.craftedHands.forEach((cid) => {
+      const def = getCraftedDef(cid);
+      if (!def) return;
+      const base = HANDS.find((h) => h.id === (def.baseType === "Exotic" ? "Rock" : def.baseType));
+      const c = div("card");
+      c.style.borderColor = "#2a3951";
+      c.innerHTML = `<span class="label">${def.name}</span><span class="emoji">${base ? base.emoji : "?"}</span>`;
+      c.addEventListener("click", () => {
+        if (state.inProgress) return;
+        const idx = currentChoices.findIndex((v) => !v);
+        if (idx > -1) {
+          currentChoices[idx] = cid;
           refresh();
         }
       });
@@ -493,7 +643,8 @@
     let lastResult = null;
 
     // onMatchStart hooks
-    const matchCtx = { round: state.round, handsCount: state.handsCount, playerChoices, aiChoices, carry, totals };
+    const playerChoicesBase = playerChoices.map((h) => getBaseType(h) || h);
+    const matchCtx = { round: state.round, handsCount: state.handsCount, playerChoices: playerChoicesBase, aiChoices, carry, totals };
     state.playerArtifacts.forEach((a) => a.onMatchStart && a.onMatchStart(matchCtx));
 
     appendLog(`<b>AI</b> has chosen its ${state.handsCount} hand${state.handsCount > 1 ? "s" : ""}.`);
@@ -517,12 +668,43 @@
           lastResult,
         };
 
-        // Instrument artifacts: record deltas per artifact for juicy VFX
+        // Instrument crafted hand and carries first
         let events = [];
+        // Generic carries that apply at start (Primer base if not Detonator)
+        if ((carry.primerStacks || 0) > 0 && pHand !== "Detonator") {
+          const stacks = carry.primerStacks || 0;
+          const baseAdd = 20 * stacks;
+          mod.p.base += baseAdd;
+          events.push({ who: "p", stat: "base", op: "add", amount: baseAdd, source: "Primer (carry)" });
+          carry.primerStacks = 0;
+        }
+        // Heavy Rock penalty may also apply at start (handled in HeavyRock.applyStart)
+        if (isCraftedHand(pHand)) {
+          const def = getCraftedDef(pHand);
+          if (def && typeof def.applyStart === "function") {
+            const add = def.applyStart(ctx) || [];
+            events.push(...add);
+          }
+        } else {
+          // Apply Heavy Rock penalty even if not playing Heavy Rock this compare
+          if (carry.heavyRockPenalty) {
+            const amt = carry.heavyRockPenalty;
+            mod.p.mult += -amt;
+            events.push({ who: "p", stat: "mult", op: "add", amount: -amt, source: "Heavy Rock (penalty)" });
+            carry.heavyRockPenalty = 0;
+          }
+        }
+
+        // Instrument artifacts: record deltas per artifact for juicy VFX
         state.playerArtifacts.forEach((art) => {
           if (!art.onCompareStart) return;
           const before = JSON.parse(JSON.stringify(mod));
-          art.onCompareStart(ctx);
+          const artCtx = {
+            ...ctx,
+            pHand: getBaseType(pHand) || pHand,
+            playerChoices: playerChoices.map((h) => getBaseType(h) || h),
+          };
+          art.onCompareStart(artCtx);
           const after = JSON.parse(JSON.stringify(mod));
           // base delta
           const baseDelta = after.p.base - before.p.base;
@@ -552,14 +734,41 @@
           }
         }
 
+        // Determine effective hand for outcome (crafted overrides)
+        function effectivePlayerHand() {
+          if (!isCraftedHand(pHand)) return pHand;
+          const def = getCraftedDef(pHand);
+          if (!def) return pHand;
+          if (pHand === "Riposte") {
+            // If reacting to a loss, choose the symbol that beats the symbol that beat you
+            if (i > 0 && lastResult === "ai") {
+              const lastAi = aiChoices[i - 1];
+              // We want the symbol that beats lastAi
+              const counters = { Rock: "Paper", Paper: "Scissors", Scissors: "Rock" };
+              return counters[lastAi] || "Rock";
+            }
+            // Otherwise force a tie by mirroring AI
+            return aHand;
+          }
+          // For other crafted hands, use their base type for RPS
+          return def.baseType && def.baseType !== "Exotic" ? def.baseType : pHand;
+        }
+
         // RPS outcome multiplier: winner gets ×1.5 applied
-        const outcome = rpsOutcome(pHand, aHand);
+        const effPHand = effectivePlayerHand();
+        const outcome = rpsOutcome(effPHand, aHand);
         if (outcome === "player") {
           mod.p.mult *= 1.5;
           events.push({ who: "p", stat: "mult", op: "mul", factor: 1.5, source: "RPS Win" });
         } else if (outcome === "ai") {
           mod.a.mult *= 1.5;
           events.push({ who: "a", stat: "mult", op: "mul", factor: 1.5, source: "RPS Win" });
+        }
+
+        // Riposte reactive bonus: if we played Riposte and this compare is a reactive beat (we lost previously and now win)
+        if (pHand === "Riposte" && i > 0 && lastResult === "ai" && outcome === "player") {
+          mod.p.mult += 0.1;
+          events.push({ who: "p", stat: "mult", op: "add", amount: 0.1, source: "Riposte (reactive)" });
         }
 
         // Final scores for this compare (we'll animate reveal first)
@@ -598,14 +807,30 @@
 
         lastResult = pScore > aScore ? "player" : pScore < aScore ? "ai" : "tie";
         ctx.lastResult = lastResult;
-        state.playerArtifacts.forEach((a) => a.onCompareEnd && a.onCompareEnd(ctx));
+        // Crafted onEnd hooks
+        if (isCraftedHand(pHand)) {
+          const def = getCraftedDef(pHand);
+          if (def && typeof def.applyEnd === "function") def.applyEnd(ctx, lastResult);
+        }
+        const artEndCtx = {
+          ...ctx,
+          pHand: getBaseType(pHand) || pHand,
+          playerChoices: playerChoices.map((h) => getBaseType(h) || h),
+        };
+        state.playerArtifacts.forEach((a) => a.onCompareEnd && a.onCompareEnd(artEndCtx));
 
         await delay(PACE.betweenCompares);
       }
 
       // onMatchEnd hooks (may adjust totals)
       const before = { p: totals.p, a: totals.a };
-      const endCtx = { round: state.round, handsCount: state.handsCount, playerChoices, aiChoices, totals };
+      const endCtx = {
+        round: state.round,
+        handsCount: state.handsCount,
+        playerChoices: playerChoices.map((h) => getBaseType(h) || h),
+        aiChoices,
+        totals,
+      };
       state.playerArtifacts.forEach((a) => a.onMatchEnd && a.onMatchEnd(endCtx));
       if (Math.abs(totals.p - before.p) > 1e-9) {
         const tag = div("chip");
@@ -643,6 +868,12 @@
     );
   }
   function handEmoji(id) {
+    // Crafted hands use their base type's emoji
+    if (CRAFTED_HAND_DEFS[id]) {
+      const base = CRAFTED_HAND_DEFS[id].baseType;
+      const mapTo = base === "Exotic" ? "Rock" : base; // fallback
+      return HANDS.find((h) => h.id === mapTo)?.emoji || "?";
+    }
     return HANDS.find((h) => h.id === id)?.emoji || "?";
   }
   function appendLog(html) {
@@ -890,9 +1121,19 @@
     await delay(450);
   }
 
+  function getOrCreateChipRow(container) {
+    const rows = container.querySelectorAll(".chip-row");
+    let row = rows[rows.length - 1];
+    if (!row || row.children.length >= 3) {
+      row = div("chip-row");
+      container.appendChild(row);
+    }
+    return row;
+  }
   function addChip(container, text) {
+    const row = getOrCreateChipRow(container);
     const c = div("chip", text);
-    container.appendChild(c);
+    row.appendChild(c);
     requestAnimationFrame(() => c.classList.add("show"));
   }
   function bump(elm) {
@@ -992,7 +1233,14 @@
     }
     recs.forEach((r) => {
       const item = div("recipe-item", `<b>${r.name}</b> <span class=\"muted tiny\">(${r.rarity})</span><div class=\"tiny\">${r.summary}</div>`);
-      item.addEventListener("click", () => renderWorkshopPreview(r));
+      if (selectedRecipeId && selectedRecipeId === r.id) item.classList.add("selected");
+      item.addEventListener("click", () => {
+        // highlight selection
+        document.querySelectorAll(".recipe-item").forEach((n) => n.classList.remove("selected"));
+        item.classList.add("selected");
+        selectedRecipeId = r.id;
+        renderWorkshopPreview(r);
+      });
       workshopList.appendChild(item);
     });
   }
@@ -1045,7 +1293,10 @@
   // Open/close workshop
   btnWorkshop.addEventListener("click", () => {
     if (state.inProgress) return; // only between matches
+    // Reset selection each time workshop opens
+    selectedRecipeId = null;
     renderWorkshopList();
+    workshopPreview.innerHTML = '<div class="muted tiny">Select a recipe to see details.</div>';
     workshopModal.showModal();
   });
   el("#closeWorkshop").addEventListener("click", () => workshopModal.close());
