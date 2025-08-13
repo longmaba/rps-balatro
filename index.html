@@ -18,7 +18,6 @@
         <div class="pill"><small>Artifacts</small> <span id="artifactsCount">0</span></div>
       </div>
     </header>
-
     <div class="row">
       <div class="col">
         <div class="panel">
@@ -58,7 +57,10 @@
 
       <div class="col" style="flex:1 1 100%">
         <div class="panel">
-          <h2>Your Artifacts</h2>
+          <div class="row" style="align-items:center; justify-content:space-between; gap:8px">
+            <h2>Your Artifacts</h2>
+            <button id="btnWorkshop" class="btn">Workshop</button>
+          </div>
           <div class="stack" id="artifactList"></div>
         </div>
       </div>
@@ -68,10 +70,28 @@
   <!-- Reward modal -->
   <dialog id="rewardModal">
     <div class="modal">
-      <h2>Choose an Artifact</h2>
-      <p class="muted">You won the match! Pick one buff.</p>
+      <h2>Choose a Reward</h2>
+      <p class="muted">Pick one: Artifact or Recipe.</p>
       <div class="choices" id="rewardChoices"></div>
       <div class="footer"><button id="closeReward" class="btn" autofocus>Skip</button></div>
+    </div>
+
+  </dialog>
+
+  <!-- Workshop modal (top-level sibling) -->
+  <dialog id="workshopModal">
+    <div class="modal workshop">
+      <h2>Workshop</h2>
+      <p class="muted tiny">Craft Hands from unlocked Recipes by consuming the required Artifacts.</p>
+      <div class="workshop-body">
+        <div class="recipe-list" id="workshopList"></div>
+        <div class="recipe-preview" id="workshopPreview">
+          <div class="muted tiny">Select a recipe to see details.</div>
+        </div>
+      </div>
+      <div class="footer">
+        <button id="closeWorkshop" class="btn" autofocus>Close</button>
+      </div>
     </div>
   </dialog>
 

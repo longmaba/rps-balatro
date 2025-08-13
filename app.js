@@ -22,6 +22,11 @@
   }
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
+  function rarityClass(s) {
+    const k = String(s || "").toLowerCase();
+    return `rarity rarity-${k}`;
+  }
+
   // Pace (slow it down a bit)
   const PACE = {
     chipDelay: 240,
@@ -37,8 +42,8 @@
   const AI_SCALING = {
     enabled: true,
     // Per-match increases applied to AI each compare
-    basePerMatch: 50, // +base per completed round
-    multAddPerMatch: 0.35, // +mult (additive) per completed round
+    basePerMatch: 10, // +base per completed round
+    multAddPerMatch: 0.05, // +mult (additive) per completed round
     // Map round -> scaling level (e.g., Round 1 => 0, Round 2 => 1, ...)
     levelFromRound: (round) => Math.max(0, round - 1),
   };
@@ -282,9 +287,60 @@
       },
     },
   ];
+  // ---------- Recipes & Crafted Hands
+  const RECIPE_POOL = [
+    {
+      id: "heavy-rock",
+      name: "Heavy Rock",
+      rarity: "Uncommon",
+      outputHandId: "HeavyRock",
+      requires: ["granite-gauntlet", "rock-enthusiast"],
+      summary: "Rock spike; plan around a dip next compare.",
+    },
+    {
+      id: "switchblade",
+      name: "Switchblade",
+      rarity: "Uncommon",
+      outputHandId: "Switchblade",
+      requires: ["precision-play", "switch-hitter"],
+      summary: "Big gains when alternating.",
+    },
+    {
+      id: "metronome-paper",
+      name: "Metronome Paper",
+      rarity: "Uncommon",
+      outputHandId: "MetronomePaper",
+      requires: ["paper-crane", "anchor-turn"],
+      summary: "Rewards repeats.",
+    },
+    {
+      id: "riposte",
+      name: "Riposte",
+      rarity: "Rare",
+      outputHandId: "Riposte",
+      requires: ["counter-surge", "tiebreak-practice"],
+      summary: "Lose then punish.",
+    },
+    {
+      id: "primer",
+      name: "Primer",
+      rarity: "Uncommon",
+      outputHandId: "Primer",
+      requires: ["opening-gambit", "momentum"],
+      summary: "Bank Base for later.",
+    },
+    {
+      id: "detonator",
+      name: "Detonator",
+      rarity: "Rare",
+      outputHandId: "Detonator",
+      requires: ["precision-play", "closers-instinct"],
+      summary: "Turn stored Base into Mult spike.",
+    },
+  ];
 
   // ---------- Game state
-  const state = { round: 1, handsCount: 1, playerArtifacts: [], inProgress: false };
+  const state = { round: 1, handsCount: 1, playerArtifacts: [], inProgress: false, playerRecipes: [], craftedHands: [] };
 
   // ---------- UI refs
   const handButtons = el("#handButtons");
@@ -306,6 +362,11 @@
   const rewardChoices = el("#rewardChoices");
   const closeReward = el("#closeReward");
   const fxStage = el("#fxStage");
+  // Workshop UI refs
+  const btnWorkshop = el("#btnWorkshop");
+  const workshopModal = el("#workshopModal");
+  const workshopList = el("#workshopList");
+  const workshopPreview = el("#workshopPreview");
 
   let currentChoices = [];
 
@@ -583,30 +644,53 @@
 
   // ---------- Rewards
   function rewardPhase() {
-    const pool = ARTIFACT_POOL.filter((a) => !state.playerArtifacts.some((x) => x.id === a.id));
-    const choices = [];
-    while (choices.length < 3 && pool.length) {
-      const pick = sample(pool);
-      choices.push(pick);
-      pool.splice(pool.indexOf(pick), 1);
+    // Build mixed pool: artifacts not owned + recipes not learned
+    const artifactPool = ARTIFACT_POOL.filter((a) => !state.playerArtifacts.some((x) => x.id === a.id));
+    const recipePool = RECIPE_POOL.filter((r) => !state.playerRecipes.includes(r.id));
+
+    // Random mix across both pools: any combination allowed (0–3 recipes)
+    const union = [...artifactPool.map((a) => ({ kind: "artifact", data: a })), ...recipePool.map((r) => ({ kind: "recipe", data: r }))];
+    const picks = [];
+    const copy = union.slice();
+    while (picks.length < 3 && copy.length) {
+      const pick = sample(copy);
+      picks.push(pick);
+      copy.splice(copy.indexOf(pick), 1);
     }
-    if (choices.length === 0) {
+
+    if (picks.length === 0) {
       btnNext.classList.remove("hidden");
       return;
     }
 
     rewardChoices.innerHTML = "";
-    choices.forEach((a) => {
-      const c = div("choice");
-      c.innerHTML = `<h3>${a.name} <span class="muted">(${a.tier})</span></h3><p class="tiny">${a.desc}</p>`;
-      c.addEventListener("click", () => {
-        state.playerArtifacts.push(a);
-        appendLog(`<b>Artifact gained:</b> ${a.name}`);
-        renderArtifacts();
-        rewardModal.close();
-        btnNext.classList.remove("hidden");
-      });
-      rewardChoices.appendChild(c);
+    picks.forEach((p) => {
+      if (p.kind === "artifact") {
+        const a = p.data;
+        const c = div("choice");
+        c.innerHTML = `<h3>${a.name} <span class="${rarityClass(a.tier)}">(${a.tier})</span></h3><p class="tiny">${a.desc}</p>`;
+        c.addEventListener("click", () => {
+          state.playerArtifacts.push(a);
+          appendLog(`<b>Artifact gained:</b> ${a.name}`);
+          renderArtifacts();
+          rewardModal.close();
+          btnNext.classList.remove("hidden");
+        });
+        rewardChoices.appendChild(c);
+      } else {
+        const r = p.data;
+        const c = div("choice recipe");
+        c.innerHTML = `<div class="badge recipe">Recipe</div><h3>${r.name} <span class="${rarityClass(r.rarity)}">(${
+          r.rarity
+        })</span></h3><p class="tiny">${r.summary}</p>`;
+        c.addEventListener("click", () => {
+          state.playerRecipes.push(r.id);
+          appendLog(`<b>Recipe learned:</b> ${r.name}`);
+          rewardModal.close();
+          btnNext.classList.remove("hidden");
+        });
+        rewardChoices.appendChild(c);
+      }
     });
     rewardModal.showModal();
   }
@@ -761,6 +845,7 @@
     const stageRect = fxStage.getBoundingClientRect();
     const rect = target.getBoundingClientRect();
     const t = div("trail " + kind, text);
+
     t.style.left = rect.left - stageRect.left + rect.width / 2 + "px";
     t.style.top = rect.top - stageRect.top + rect.height / 2 + "px";
     fxStage.appendChild(t);
@@ -830,6 +915,74 @@
     for (let i = 0; i < state.handsCount; i++) currentChoices[i] = sample(HANDS).id;
     refresh();
   });
+  // ---------- Workshop logic (top-level)
+  function renderWorkshopList() {
+    workshopList.innerHTML = "";
+    const recs = state.playerRecipes.map((id) => RECIPE_POOL.find((r) => r.id === id)).filter(Boolean);
+    if (recs.length === 0) {
+      workshopList.appendChild(div("muted tiny", "No recipes learned yet. Learn recipes from rewards."));
+      workshopPreview.innerHTML = '<div class="muted tiny">Select a recipe to see details.</div>';
+      return;
+    }
+    recs.forEach((r) => {
+      const item = div("recipe-item", `<b>${r.name}</b> <span class=\"muted tiny\">(${r.rarity})</span><div class=\"tiny\">${r.summary}</div>`);
+      item.addEventListener("click", () => renderWorkshopPreview(r));
+      workshopList.appendChild(item);
+    });
+  }
+  function renderWorkshopPreview(r) {
+    const norm = (s) =>
+      String(s || "")
+        .trim()
+        .toLowerCase();
+    const ownedSet = new Set(state.playerArtifacts.map((a) => norm(a.id)));
+    const reqHtml = r.requires
+      .map((rid) => {
+        const ok = ownedSet.has(norm(rid));
+        const a = ARTIFACT_POOL.find((x) => norm(x.id) === norm(rid));
+        return `<span class=\"req ${ok ? "ok" : "miss"}\">${ok ? "✓" : "✗"} ${a ? a.name : rid}</span>`;
+      })
+      .join(" ");
+    workshopPreview.innerHTML = `
+      <h3>${r.name} <span class=\"muted\">(${r.rarity})</span></h3>
+      <p class=\"tiny\">${r.summary}</p>
+      <div class=\"divider\"></div>
+      <div><b>Requires:</b> <div class=\"requirements\">${reqHtml}</div></div>
+      <div class=\"stack\" style=\"margin-top:10px\">
+        <button id=\"btnDoCraft\" class=\"btn primary\">Craft</button>
+      </div>
+    `;
+    const canCraft = r.requires.every((rid) => ownedSet.has(norm(rid)));
+    const btn = el("#btnDoCraft");
+    btn.disabled = !canCraft;
+    btn.addEventListener("click", () => {
+      if (!canCraft) return;
+      const names = r.requires.map((id) => ARTIFACT_POOL.find((x) => x.id === id)?.name || id).join(", ");
+      const ok = confirm(`Craft "${r.name}"?\nThis will consume: ${names}`);
+      if (!ok) return;
+      doCraft(r);
+    });
+  }
+  function doCraft(r) {
+    // consume artifacts
+    r.requires.forEach((id) => {
+      const idx = state.playerArtifacts.findIndex((a) => a.id === id);
+      if (idx !== -1) state.playerArtifacts.splice(idx, 1);
+    });
+    // add crafted hand
+    state.craftedHands.push(r.outputHandId);
+    appendLog(`<b>Crafted:</b> ${r.name}`);
+    renderArtifacts();
+    renderWorkshopList();
+    renderWorkshopPreview(r);
+  }
+  // Open/close workshop
+  btnWorkshop.addEventListener("click", () => {
+    if (state.inProgress) return; // only between matches
+    renderWorkshopList();
+    workshopModal.showModal();
+  });
+  el("#closeWorkshop").addEventListener("click", () => workshopModal.close());
   btnLock.addEventListener("click", () => resolveMatch());
   btnNext.addEventListener("click", () => {
     btnNext.classList.add("hidden");

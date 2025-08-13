@@ -133,8 +133,11 @@ h3 {
 
 .card .emoji {
   font-size: 54px;
-  display: block;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 130px;
   margin-top: 8px
 }
 
@@ -251,6 +254,15 @@ h3 {
 .muted {
   color: var(--muted)
 }
+
+/* Rarity colors */
+.rarity { font-weight: 600; }
+.rarity-common { color: #9fb0c8; }
+.rarity-uncommon { color: #7dd3fc; }
+.rarity-rare { color: #fbbf24; }
+.rarity-epic { color: #a78bfa; }
+.rarity-legendary { color: #f472b6; }
+
 
 .score {
   display: grid;
@@ -603,4 +615,25 @@ dialog::backdrop {
   animation: shake var(--shake-ms, 650ms) ease
 }
 
+
+
+/* ---------- Workshop & Recipes ---------- */
+.choice.recipe {
+  background: #0f1622 radial-gradient(120% 120% at 50% 0%, #0e1420, #0a111d);
+  border-color: #375a9e;
+}
+.choice .badge.recipe {
+  display: inline-flex; align-items:center; gap:6px;
+  padding: 2px 6px; font-size: 11px; border-radius: 999px;
+  background: #132544; border:1px solid #375a9e; color:#cbdcff;
+}
+.modal.workshop { min-width: 880px; }
+.workshop-body { display: grid; grid-template-columns: 280px 1fr; gap: 12px; margin-top: 8px; }
+.recipe-list { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow:auto; }
+.recipe-item { padding: 10px; border-radius: 10px; border:1px solid #2a3951; background:#0f1622; cursor:pointer; }
+.recipe-item.selected { outline:2px solid var(--accent); border-color:#3b82f6; }
+.recipe-preview { border:1px solid #2a3951; background:#0f1622; border-radius: 12px; padding: 12px; min-height: 220px; }
+.requirements { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px }
+.req.ok { color: var(--good); }
+.req.miss { color: var(--bad); }
 
