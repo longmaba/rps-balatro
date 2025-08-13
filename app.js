@@ -361,6 +361,9 @@
   const rewardModal = el("#rewardModal");
   const rewardChoices = el("#rewardChoices");
   const closeReward = el("#closeReward");
+  // Start modal refs
+  const startModal = el("#startModal");
+  const startChoices = el("#startChoices");
   const fxStage = el("#fxStage");
   // Workshop UI refs
   const btnWorkshop = el("#btnWorkshop");
@@ -446,6 +449,8 @@
     fxStage.innerHTML = "";
     hideFooterButtons();
     refresh();
+    // Prompt player to pick a starting artifact via mystery boxes
+    showStartArtifactChoice();
   }
 
   function hideFooterButtons() {
@@ -693,6 +698,45 @@
       }
     });
     rewardModal.showModal();
+  }
+
+  // ---------- Start-of-run mystery boxes ----------
+  function showStartArtifactChoice() {
+    if (!startModal || !startChoices) return;
+    startChoices.innerHTML = "";
+    // Build 3 random mystery picks from unowned artifacts (or full pool if less than 3)
+    const unowned = ARTIFACT_POOL.filter((a) => !state.playerArtifacts.some((x) => x.id === a.id));
+    const pool = unowned.length >= 3 ? unowned : ARTIFACT_POOL.slice();
+    const picks = [];
+    const copy = pool.slice();
+    while (picks.length < 3 && copy.length) {
+      const pick = sample(copy);
+      picks.push(pick);
+      copy.splice(copy.indexOf(pick), 1);
+    }
+
+    picks.forEach((a, idx) => {
+      const c = div("choice mysterybox");
+      c.innerHTML = `<div class="mystery-face">🎁 Mystery Box #${idx + 1}</div>`;
+      c.addEventListener("click", () => {
+        // Reveal animation: swap to artifact details, then accept
+        c.classList.add("revealed");
+        c.innerHTML = `<h3>${a.name} <span class="${rarityClass(a.tier)}">(${a.tier})</span></h3><p class="tiny">${a.desc}</p>`;
+        // Glow on reveal (no particles)
+        c.classList.add("glow");
+        // Add after brief delay to allow reading
+        setTimeout(() => {
+          state.playerArtifacts.push(a);
+          appendLog(`<b>Starting artifact:</b> ${a.name}`);
+          renderArtifacts();
+          startModal.close();
+          refresh();
+        }, 900);
+      });
+      startChoices.appendChild(c);
+    });
+
+    startModal.showModal();
   }
 
   // ---------- FX helpers
