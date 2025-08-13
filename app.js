@@ -33,6 +33,16 @@
     totalsMs: 800,
   };
 
+  // AI difficulty scaling (configurable)
+  const AI_SCALING = {
+    enabled: true,
+    // Per-match increases applied to AI each compare
+    basePerMatch: 50, // +base per completed round
+    multAddPerMatch: 0.35, // +mult (additive) per completed round
+    // Map round -> scaling level (e.g., Round 1 => 0, Round 2 => 1, ...)
+    levelFromRound: (round) => Math.max(0, round - 1),
+  };
+
   // ---------- Artifact system
   /**
    * Artifacts have optional hooks:
@@ -152,6 +162,122 @@
         if (c.Rock >= c.Paper && c.Paper >= c.Scissors) {
           ctx.totals.p *= 1.05;
           ctx._matchEndDelta = ctx.totals.p;
+        }
+      },
+    },
+    {
+      id: "switch-hitter",
+      name: "Switch Hitter",
+      tier: "Common",
+      desc: "If this hand differs from your previous play, +60 base.",
+      onCompareStart(ctx) {
+        if (ctx.compareIndex > 0 && ctx.playerChoices[ctx.compareIndex] !== ctx.playerChoices[ctx.compareIndex - 1]) {
+          ctx.mod.p.base += 60;
+        }
+      },
+    },
+    {
+      id: "anchor-turn",
+      name: "Anchor Turn",
+      tier: "Common",
+      desc: "On the last compare this match, +80 base.",
+      onCompareStart(ctx) {
+        if (ctx.compareIndex === ctx.handsCount - 1) ctx.mod.p.base += 80;
+      },
+    },
+    {
+      id: "tiebreak-practice",
+      name: "Tiebreak Practice",
+      tier: "Common",
+      desc: "If the previous compare was a tie, +40 base.",
+      onCompareStart(ctx) {
+        if (ctx.lastResult === "tie") ctx.mod.p.base += 40;
+      },
+    },
+    {
+      id: "counter-read",
+      name: "Counter Read",
+      tier: "Common",
+      desc: "If your hand beats the AI’s this compare, +50 base.",
+      onCompareStart(ctx) {
+        if (ctx.pHand && ctx.aHand && BEATS[ctx.pHand] === ctx.aHand) ctx.mod.p.base += 50;
+      },
+    },
+    {
+      id: "underdog",
+      name: "Underdog",
+      tier: "Uncommon",
+      desc: "If you are trailing in total before this compare, +0.25 to multiplier.",
+      onCompareStart(ctx) {
+        if (ctx.totals.p < ctx.totals.a) ctx.mod.p.mult += 0.25;
+      },
+    },
+    {
+      id: "win-streaker",
+      name: "Win Streaker",
+      tier: "Uncommon",
+      desc: "While on a win streak, +0.15 mult per consecutive prior win (resets on loss).",
+      onCompareStart(ctx) {
+        if (ctx.carry.winStreakMult) ctx.mod.p.mult += ctx.carry.winStreakMult;
+      },
+      onCompareEnd(ctx) {
+        if (ctx.lastResult === "player") ctx.carry.winStreakMult = (ctx.carry.winStreakMult || 0) + 0.15;
+        else if (ctx.lastResult === "ai") ctx.carry.winStreakMult = 0;
+      },
+    },
+    {
+      id: "scouts-report",
+      name: "Scout's Report",
+      tier: "Uncommon",
+      desc: "If AI plays ≥2 of one type this match, your counter gets +0.3 mult on those compares.",
+      onCompareStart(ctx) {
+        const c = countBy(ctx.aiChoices);
+        if (c.Scissors >= 2 && ctx.pHand === "Rock") ctx.mod.p.mult += 0.3;
+        if (c.Rock >= 2 && ctx.pHand === "Paper") ctx.mod.p.mult += 0.3;
+        if (c.Paper >= 2 && ctx.pHand === "Scissors") ctx.mod.p.mult += 0.3;
+      },
+    },
+    {
+      id: "full-suite",
+      name: "Full Suite",
+      tier: "Rare",
+      desc: "If you play all three types at least once this match, ×1.15 multiplier on all compares.",
+      onCompareStart(ctx) {
+        const c = countBy(ctx.playerChoices);
+        if (c.Rock && c.Paper && c.Scissors) ctx.mod.p.mult *= 1.15;
+      },
+    },
+    {
+      id: "monotype-engine",
+      name: "Monotype Engine",
+      tier: "Rare",
+      desc: "If you play only one type this match, ×1.25 multiplier on all compares.",
+      onCompareStart(ctx) {
+        const types = new Set(ctx.playerChoices);
+        if (types.size === 1) ctx.mod.p.mult *= 1.25;
+      },
+    },
+    {
+      id: "closers-instinct",
+      name: "Closer's Instinct",
+      tier: "Rare",
+      desc: "On the last compare this match, ×1.3 multiplier.",
+      onCompareStart(ctx) {
+        if (ctx.compareIndex === ctx.handsCount - 1) ctx.mod.p.mult *= 1.3;
+      },
+    },
+    {
+      id: "rock-dividend",
+      name: "Rock Dividend",
+      tier: "Rare",
+      desc: "End of match: +3% final total per Rock played (cap +9%).",
+      onMatchEnd(ctx) {
+        const c = countBy(ctx.playerChoices);
+        const bonus = Math.min(0.09, 0.03 * c.Rock);
+        if (bonus > 0) {
+          const before = ctx.totals.p;
+          ctx.totals.p *= 1 + bonus;
+          ctx._matchEndDelta = ctx.totals.p - before;
         }
       },
     },
@@ -336,6 +462,21 @@
             else events.push({ who: "p", stat: "mult", op: "add", amount: after.p.mult - before.p.mult, source: art.name });
           }
         });
+
+        // Apply AI difficulty scaling before outcome
+        const aiLevel = AI_SCALING.enabled ? AI_SCALING.levelFromRound(state.round) : 0;
+        if (aiLevel > 0) {
+          const baseAdd = aiLevel * AI_SCALING.basePerMatch;
+          const multAdd = aiLevel * AI_SCALING.multAddPerMatch;
+          if (Math.abs(baseAdd) > 1e-9) {
+            mod.a.base += baseAdd;
+            events.push({ who: "a", stat: "base", op: "add", amount: baseAdd, source: "AI Scaling" });
+          }
+          if (Math.abs(multAdd) > 1e-9) {
+            mod.a.mult += multAdd;
+            events.push({ who: "a", stat: "mult", op: "add", amount: multAdd, source: "AI Scaling" });
+          }
+        }
 
         // RPS outcome multiplier: winner gets ×1.5 applied
         const outcome = rpsOutcome(pHand, aHand);
@@ -537,7 +678,26 @@
           if (e.source === "RPS Win") screenshake(fxStage, 700, 10);
         }
       } else if (e.who === "a") {
-        if (e.stat === "mult" && e.op === "mul") {
+        if (e.stat === "base" && e.op === "add") {
+          addChip(aChips, `+${fmt(e.amount)} base — ${e.source}`);
+          await animateNumber(
+            aBaseEl,
+            parseFloat(aBaseEl.textContent.replace(/,/g, "")),
+            parseFloat(aBaseEl.textContent.replace(/,/g, "")) + e.amount,
+            PACE.numberMs
+          );
+          bump(aBaseEl);
+          glow(aLane);
+          trail(aBaseEl, "+" + fmt(e.amount), "lose");
+          burst(aLane, "#ff6b6b");
+        } else if (e.stat === "mult" && e.op === "add") {
+          addChip(aChips, `+${fmt(e.amount)} mult — ${e.source}`);
+          await animateNumber(aMultEl, parseFloat(aMultEl.textContent), parseFloat(aMultEl.textContent) + e.amount, PACE.numberMsMult);
+          bump(aMultEl);
+          glow(aLane);
+          trail(aMultEl, "+" + fmt(e.amount), "lose");
+          burst(aLane, "#ff6b6b");
+        } else if (e.stat === "mult" && e.op === "mul") {
           addChip(aChips, `×${fmt(e.factor)} mult — ${e.source}`);
           const cur = parseFloat(aMultEl.textContent);
           await animateNumber(aMultEl, cur, cur * e.factor, PACE.numberMsMult);
